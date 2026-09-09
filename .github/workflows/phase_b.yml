@@ -8,17 +8,28 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Provenance
+      - name: Find jsc
         run: |
           uname -m && sw_vers
-          JSC=/System/Library/Frameworks/JavaScriptCore.framework/Helpers/jsc
-          file "$JSC"
-          codesign -dv "$JSC" 2>&1 | grep -E "Identifier|Authority" | head -3
+          find /System /usr /Applications -name "jsc" 2>/dev/null | head -5
+          find /System /usr -name "JavaScriptCore" -type d 2>/dev/null | head -5
+          JSC=$(find /System -name "jsc" 2>/dev/null | head -1)
+          if [ -z "$JSC" ]; then
+            JSC=$(find /usr -name "jsc" 2>/dev/null | head -1)
+          fi
+          echo "JSC=$JSC"
           echo "JSC=$JSC" >> $GITHUB_ENV
+          file "$JSC" 2>/dev/null || echo "not found"
+          codesign -dv "$JSC" 2>&1 | grep -E "Identifier|Authority" | head -3 || true
       - name: CONTROL
         run: |
+          echo "Using JSC: $JSC"
+          set +e
           "$JSC" control.js 2>&1
-          echo "control_exit=$?" >> $GITHUB_ENV
+          EXIT=$?
+          set -e
+          echo "control_exit=$EXIT" >> $GITHUB_ENV
+          echo "CONTROL exit=$EXIT"
       - name: EXPLOIT
         run: |
           set +e
@@ -30,6 +41,7 @@ jobs:
           [ $EXIT -eq 134 ] && echo "RESULT=SIGABRT" >> $GITHUB_ENV || true
           [ $EXIT -eq 0 ]   && echo "RESULT=EXIT0" >> $GITHUB_ENV || true
           [ -z "$RESULT" ]  && echo "RESULT=EXIT_$EXIT" >> $GITHUB_ENV || true
+          echo "EXPLOIT exit=$EXIT"
       - name: Summary
         if: always()
         run: |
