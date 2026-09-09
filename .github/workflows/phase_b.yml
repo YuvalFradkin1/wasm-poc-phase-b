@@ -1,74 +1,37 @@
 name: Wasm try-catch Phase B
-
 on:
   workflow_dispatch:
   push:
     branches: [master]
-
 jobs:
   phase-b:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Provenance
         run: |
           uname -m && sw_vers
           JSC=/System/Library/Frameworks/JavaScriptCore.framework/Helpers/jsc
           file "$JSC"
-          codesign -dv "$JSC" 2>&1 | grep -E "Identifier|TeamIdentifier|Authority" | head -5
+          codesign -dv "$JSC" 2>&1 | grep -E "Identifier|Authority" | head -3
           echo "JSC=$JSC" >> $GITHUB_ENV
-
-      - name: CONTROL — valid Wasm module (expect: no error)
+      - name: CONTROL
         run: |
-          cat > /tmp/control.js << 'JSEOF'
-          const bytes = new Uint8Array([
-            0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00,
-            0x01,0x85,0x80,0x80,0x80,0x00,0x01,0x60,0x00,0x00,
-            0x03,0x82,0x80,0x80,0x80,0x00,0x01,0x00,
-            0x0a,0x86,0x80,0x80,0x80,0x00,0x01,0x80,0x80,0x80,0x80,0x00,0x0b,
-          ]);
-          try {
-            new WebAssembly.Module(bytes);
-            print("CONTROL_PASS: valid module accepted");
-          } catch(e) { print("CONTROL_FAIL: " + e); }
-          JSEOF
-          set +e
-          "$JSC" /tmp/control.js 2>&1
-          EXIT=$?
-          set -e
-          echo "control_exit=$EXIT" >> $GITHUB_ENV
-          echo "CONTROL exit=$EXIT"
-
-      - name: EXPLOIT — try/catch type confusion bytes
+          "$JSC" control.js 2>&1
+          echo "control_exit=$?" >> $GITHUB_ENV
+      - name: EXPLOIT
         run: |
           set +e
           "$JSC" poc.js 2>&1
           EXIT=$?
           set -e
           echo "exploit_exit=$EXIT" >> $GITHUB_ENV
-          echo "EXPLOIT exit=$EXIT"
-          if [ $EXIT -eq 139 ]; then
-            echo "RESULT=SIGSEGV" >> $GITHUB_ENV
-            echo "*** SIGSEGV — crash confirmed ***"
-          elif [ $EXIT -eq 134 ]; then
-            echo "RESULT=SIGABRT" >> $GITHUB_ENV
-            echo "*** SIGABRT — crash confirmed ***"
-          elif [ $EXIT -eq 0 ]; then
-            echo "RESULT=VULNERABLE_OR_FIXED" >> $GITHUB_ENV
-          else
-            echo "RESULT=EXIT_$EXIT" >> $GITHUB_ENV
-          fi
-
+          [ $EXIT -eq 139 ] && echo "RESULT=SIGSEGV" >> $GITHUB_ENV || true
+          [ $EXIT -eq 134 ] && echo "RESULT=SIGABRT" >> $GITHUB_ENV || true
+          [ $EXIT -eq 0 ]   && echo "RESULT=EXIT0" >> $GITHUB_ENV || true
+          [ -z "$RESULT" ]  && echo "RESULT=EXIT_$EXIT" >> $GITHUB_ENV || true
       - name: Summary
         if: always()
         run: |
-          echo "================================"
-          echo " Phase B — Wasm try/catch"
-          echo "================================"
-          echo " Signal: 8f229fb729"
-          echo " OS: $(sw_vers -productVersion) arch=$(uname -m)"
-          echo " Control: $control_exit"
-          echo " Exploit: $exploit_exit"
-          echo " Result:  $RESULT"
-          echo "================================"
+          echo "OS=$(sw_vers -productVersion) arch=$(uname -m)"
+          echo "control=$control_exit exploit=$exploit_exit result=$RESULT"
